@@ -6,7 +6,7 @@ const axios = require("axios");
 const app = express();
 
 // Initialize Firebase Admin SDK
-const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
+const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS || JSON.stringify(require("./serviceAccountKey.json")));
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: "https://myweb-34625-default-rtdb.firebaseio.com",
@@ -28,8 +28,8 @@ function getCurrentHour() {
 // Function to fetch and process precipitation
 async function fetchPrecipitation() {
   const coordinates = {
-    latitude: 10.5906, // Suối Nghệ, Châu Đức, BRVT
-    longitude: 107.2136,
+    latitude: 10.5906,
+    longitude: 107.2136
   };
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}&hourly=precipitation&timezone=Asia/Ho_Chi_Minh`;
 
@@ -53,68 +53,64 @@ async function fetchPrecipitation() {
       const recordCount = muaData ? Object.keys(muaData).length : 0;
       console.log("Current number of records in data_mua:", recordCount);
 
-      // Clear all records if it reaches 30
-      if (recordCount >= 30) {
+      // Clear all records if it reaches 720 (30 days * 24 hours)
+      if (recordCount >= 720) {
         await dataMuaRef.remove();
-        console.log("Cleared all records in data_mua as it reached 30 records");
+        console.log("Cleared all records in data_mua as it reached 720 records");
       }
 
-      // Calculate total precipitation for today
+      // Get current date and hour
       const today = getCurrentDate();
       const currentHour = getCurrentHour();
-      const hourlyPrecipitations = {};
 
-      // Initialize with the latest precipitation
+      // Only update the record for the current hour, no accumulation
+      const hourlyPrecipitations = {};
       if (typeof latestPrecipitation === "number" && !isNaN(latestPrecipitation)) {
         hourlyPrecipitations[currentHour] = latestPrecipitation;
       }
 
-      // Collect existing precipitation records for today
+      // Check if there's an existing record for today and this hour
+      let existingRecordKey = null;
       if (muaData) {
         for (let key in muaData) {
           const record = muaData[key];
-          if (record.date === today && record.hourlyPrecipitations) {
-            // Copy all hourly precipitations from existing record, except for current hour
-            for (let hour in record.hourlyPrecipitations) {
-              if (parseInt(hour) !== currentHour) {
-                hourlyPrecipitations[hour] = parseFloat(record.hourlyPrecipitations[hour]) || 0;
-              }
-            }
+          if (record.date === today && record.hour === currentHour) {
+            existingRecordKey = key;
+            break;
           }
         }
       }
 
-      // Calculate total precipitation for today
-      const totalPrecipitationToday = Object.values(hourlyPrecipitations).reduce((sum, prec) => sum + prec, 0);
-
-      // Remove all existing records for today
-      if (muaData) {
-        const updates = {};
-        for (let key in muaData) {
-          if (muaData[key].date === today) {
-            updates[key] = null;
-          }
-        }
-        if (Object.keys(updates).length > 0) {
-          await dataMuaRef.update(updates);
-          console.log("Removed existing records for today:", today);
-        }
+      // Update or create record for the current hour
+      if (existingRecordKey) {
+        // Update existing record for the same hour
+        await dataMuaRef.child(existingRecordKey).update({
+          precipitation: latestPrecipitation,
+          hourlyPrecipitations: hourlyPrecipitations,
+          timestamp: Date.now(),
+        });
+        console.log("Updated precipitation record in Firebase /data_mua:", {
+          date: today,
+          hour: currentHour,
+          precipitation: latestPrecipitation,
+          hourlyPrecipitations,
+        });
+      } else {
+        // Create new record for the current hour
+        await dataMuaRef.push({
+          date: today,
+          hour: currentHour,
+          precipitation: latestPrecipitation,
+          hourlyPrecipitations: hourlyPrecipitations,
+          timestamp: Date.now(),
+        });
+        console.log("New precipitation record sent to Firebase /data_mua:", {
+          date: today,
+          hour: currentHour,
+          precipitation: latestPrecipitation,
+          hourlyPrecipitations,
+        });
       }
-
-      // Add new record
-      await dataMuaRef.push({
-        date: today,
-        hour: currentHour,
-        precipitation: totalPrecipitationToday,
-        hourlyPrecipitations: hourlyPrecipitations,
-        timestamp: Date.now(),
-      });
-      console.log("New precipitation record sent to Firebase /data_mua:", {
-        date: today,
-        hour: currentHour,
-        precipitation: totalPrecipitationToday,
-        hourlyPrecipitations,
-      });
     } else {
       console.warn("No precipitation data available from Open-Meteo");
     }
@@ -123,8 +119,8 @@ async function fetchPrecipitation() {
   }
 }
 
-// Schedule the task to run every 10 minutes
-cron.schedule("*/10 * * * *", () => {
+// Schedule the task to run every hour
+cron.schedule("0 * * * *", () => {
   console.log("Running precipitation fetch task...");
   fetchPrecipitation();
 });
