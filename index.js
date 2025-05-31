@@ -28,8 +28,8 @@ function getCurrentHour() {
 // Function to fetch and process precipitation
 async function fetchPrecipitation() {
   const coordinates = {
-    latitude: 10.3678, // Suối Nghệ, Châu Đức, BRVT
-    longitude: 107.0989,
+    latitude: 10.5906, // Suối Nghệ, Châu Đức, BRVT
+    longitude: 107.2136,
   };
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}&hourly=precipitation&timezone=Asia/Ho_Chi_Minh`;
 
