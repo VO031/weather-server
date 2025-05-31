@@ -6,7 +6,7 @@ const axios = require("axios");
 const app = express();
 
 // Initialize Firebase Admin SDK
-const serviceAccount = require("./serviceAccountKey.json"); // Thay bằng env variable nếu cần
+const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: "https://myweb-34625-default-rtdb.firebaseio.com",
